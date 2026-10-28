@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<title>Nearby Merchant Lead Finder</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17202a;background:#f3f7f7}
+*{box-sizing:border-box}body{margin:0}header{background:#0f766e;color:white;padding:22px 16px}h1{font-size:23px;margin:0 0 6px}header p{margin:0;font-size:14px}
+main{padding:16px;max-width:760px;margin:auto}.card{background:white;border:1px solid #dbe4e4;border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px #1020200a}
+label{display:block;font-weight:650;margin:10px 0 6px}input,button{font:inherit;width:100%;padding:13px;border:1px solid #bdcbcb;border-radius:10px;background:white}button{background:#0f766e;color:white;font-weight:700;border:0;margin-top:12px}button.secondary{background:#e6f3f1;color:#075e57}small,.muted{color:#536363;font-size:13px;line-height:1.45}.status{padding:11px;background:#eef6f5;border-radius:10px;margin-top:12px;font-size:14px;white-space:pre-wrap}.lead{border-top:1px solid #e3e9e9;padding:13px 0}.lead h3{margin:0 0 5px;font-size:17px}.lead p{margin:4px 0;font-size:14px}.links a{display:inline-block;margin:7px 12px 0 0;color:#08756b;font-weight:650}.hidden{display:none}
+</style>
+</head>
+<body>
+<header><h1>Nearby Merchant Lead Finder</h1><p>Find imported merchants near your live location</p></header>
+<main>
+<section class="card">
+<h2>1. Import your lead list</h2>
+<p class="muted">Choose a CSV file saved on your iPhone. Your list is processed in this browser and is not uploaded by this page. Keep your original file private.</p>
+<label for="file">Merchant CSV file</label><input id="file" type="file" accept=".csv,text/csv">
+<p class="muted">Your CSV should include merchant name, phone number, latitude and longitude columns. Column names can vary; the app will try to recognise common names.</p>
+<div id="importStatus" class="status">No file imported yet.</div>
+</section>
+<section class="card">
+<h2>2. Find nearby leads</h2>
+<label for="radius">Search radius (km)</label><input id="radius" type="number" min="0.1" max="100" step="0.1" value="1">
+<button id="locate">Use my current location</button>
+<button id="demo" class="secondary">Check location permission help</button>
+<div id="status" class="status">Import a CSV, then allow location access to find nearby merchants.</div>
+</section>
+<section class="card"><h2>Nearby results <span id="count"></span></h2><div id="results" class="muted">Results will appear here.</div></section>
+</main>
+<script>
+let leads=[],position=null;
+function norm(s){return (s||"").toLowerCase().replace(/[^a-z0-9]/g,"")}
+function parseCSV(text){let rows=[],row=[],cell="",q=false;for(let i=0;i<text.length;i++){let c=text[i];if(c=='"'&&q&&text[i+1]=='"'){cell+='"';i++}else if(c=='"'){q=!q}else if(c==","&&!q){row.push(cell);cell=""}else if((c=="\n"||c=="\r")&&!q){if(c=="\r"&&text[i+1]=="\n")i++;row.push(cell);if(row.some(v=>v.trim()))rows.push(row);row=[];cell=""}else cell+=c}row.push(cell);if(row.some(v=>v.trim()))rows.push(row);return rows}
+function pick(headers,terms){return headers.findIndex(h=>terms.some(t=>norm(h).includes(t)))}
+function num(v){if(v==null)return NaN;return parseFloat(String(v).replace(/[^\d.-]/g,""))}
+document.getElementById("file").addEventListener("change",async e=>{let f=e.target.files[0];if(!f)return;try{let rows=parseCSV(await f.text());if(rows.length<2)throw Error("The CSV appears empty.");let h=rows[0];let ni=pick(h,["businessname","merchantname","storename","name","business"]),pi=pick(h,["phone","mobile","contact","telephone"]),lai=pick(h,["latitude","lat"]),loi=pick(h,["longitude","lon","lng"]);if(lai<0||loi<0)throw Error("Latitude/longitude columns were not found. Please use a CSV that contains coordinates.");leads=rows.slice(1).map(r=>({name:r[ni>=0?ni:0]||"Unnamed merchant",phone:pi>=0?r[pi]||"": "",lat:num(r[lai]),lon:num(r[loi]),raw:r})).filter(x=>Number.isFinite(x.lat)&&Number.isFinite(x.lon));document.getElementById("importStatus").textContent=`Imported ${leads.length} merchants with coordinates from ${f.name}.`;document.getElementById("status").textContent=leads.length?"Now tap “Use my current location” and allow location access.":"No rows had valid coordinates.";if(position)showResults()}catch(err){document.getElementById("importStatus").textContent="Could not import: "+err.message+" Please check that this is a comma-separated CSV file."}});
+function dist(a,b,c,d){const R=6371,rad=x=>x*Math.PI/180,dl=rad(c-a),dn=rad(d-b);let z=Math.sin(dl/2)**2+Math.cos(rad(a))*Math.cos(rad(c))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(z))}
+function esc(s){return String(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function showResults(){if(!position)return;let radius=Math.max(.1,Number(document.getElementById("radius").value)||1);let found=leads.map(x=>({...x,distance:dist(position.coords.latitude,position.coords.longitude,x.lat,x.lon)})).filter(x=>x.distance<=radius).sort((a,b)=>a.distance-b.distance);document.getElementById("count").textContent=`(${found.length})`;let out=document.getElementById("results");if(!found.length){out.textContent="No imported merchants found within "+radius+" km. Try a larger radius or check that the coordinates are correct.";return}out.innerHTML=found.map(x=>`<div class="lead"><h3>${esc(x.name)}</h3><p>${x.distance.toFixed(2)} km away</p>${x.phone?`<p>Phone: ${esc(x.phone)}</p>`:""}<div class="links">${x.phone?`<a href="tel:${encodeURIComponent(x.phone)}">Call merchant</a>`:""}<a target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${x.lat},${x.lon}">Open directions</a></div></div>`).join("")}
+document.getElementById("locate").addEventListener("click",()=>{if(!navigator.geolocation){document.getElementById("status").textContent="This browser does not support location. Open the site in Safari.";return}document.getElementById("status").textContent="Requesting your location…";navigator.geolocation.getCurrentPosition(p=>{position=p;document.getElementById("status").textContent=`Location found. Accuracy approximately ${Math.round(p.coords.accuracy)} metres. Showing merchants within ${document.getElementById("radius").value} km.`;showResults()},e=>{document.getElementById("status").textContent="Location unavailable: "+e.message+". In Safari, allow Location access for this website and try again."},{enableHighAccuracy:true,timeout:20000,maximumAge:30000})});
+document.getElementById("radius").addEventListener("change",showResults);
+document.getElementById("demo").addEventListener("click",()=>{document.getElementById("status").textContent="On iPhone: open this page in Safari over HTTPS. When prompted, choose Allow for location. If you previously blocked it, go to iPhone Settings > Privacy & Security > Location Services > Safari Websites and allow location access."});
+</script>
+</body></html>
